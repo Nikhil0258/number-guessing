@@ -8,7 +8,6 @@ const supabase = createClient(
 );
 
 export default function NumberGuessingGame() {
-  // minimal state
   const [stage, setStage] = useState("login"); // login, lobby, setup, play, finished
   const [name, setName] = useState("");
   const [codeIn, setCodeIn] = useState("");
@@ -25,7 +24,7 @@ export default function NumberGuessingGame() {
   // generate code
   const gen = () => Math.random().toString(36).substring(2,8).toUpperCase();
 
-  // subscribe to changes for a room
+  // subscribe to realtime changes for the current room
   useEffect(() => {
     if (!room?.id) { setDebugSub("none"); return; }
     setDebugSub("pending");
@@ -34,10 +33,11 @@ export default function NumberGuessingGame() {
       .on("postgres_changes", { event: "*", schema: "public", table: "games", filter: `id=eq.${room.id}` }, (p) => {
         setPayload(p);
         if (p.record) setRoom(p.record);
-        // start play when both secrets set
         if (p.record?.secret_player1 && p.record?.secret_player2) setStage("play");
+        if (p.record?.winner) setStage("finished");
       })
       .subscribe((status) => {
+        // status strings like "SUBSCRIBED", "ERROR", "CLOSED"
         if (status === "SUBSCRIBED") setDebugSub("subscribed");
         else setDebugSub(status.toLowerCase());
       });
@@ -62,16 +62,23 @@ export default function NumberGuessingGame() {
     return () => id && clearInterval(id);
   }, [room?.id, stage]);
 
-  // a minimal timer for UI
+  // timer for UI
   useEffect(() => {
     if (stage !== "play") { if (timerRef.current) clearInterval(timerRef.current); return; }
-    timerRef.current = setInterval(() => {
-      setTimeLeft(t => t <= 1 ? 15 : t - 1);
-    }, 1000);
+    timerRef.current = setInterval(() => setTimeLeft(t => t <= 1 ? 15 : t - 1), 1000);
     return () => clearInterval(timerRef.current);
   }, [stage]);
 
-  // create room
+  // keyboard shortcut R => manual refresh
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.key === 'r' || e.key === 'R') && room?.id) manualRefresh();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.id]);
+
   const createRoom = async () => {
     if (!name.trim()) return alert("Enter name");
     const newCode = gen();
@@ -82,7 +89,6 @@ export default function NumberGuessingGame() {
     setRoom(data); setInvite(newCode); setStage("lobby");
   };
 
-  // join room
   const joinRoom = async () => {
     if (!name.trim()) return alert("Enter name");
     if (!codeIn.trim()) return alert("Enter code");
@@ -95,23 +101,74 @@ export default function NumberGuessingGame() {
     setRoom(data); setInvite(code); setStage("setup");
   };
 
-  // set secret
   const setMySecret = async () => {
     if (!/^\d{4}$/.test(secret)) return alert("Enter 4 digits");
     const playerKey = room.player1 === name ? "secret_player1" : "secret_player2";
     const { data, error } = await supabase.from("games").update({ [playerKey]: secret }).eq("id", room.id).select().single();
     if (error) return alert(error.message);
-    setRoom(data); setStage("setup"); setSecret("");
+    setRoom(data); setSecret("");
   };
 
-  // manual refresh utility
   const manualRefresh = async () => {
     if (!room?.id) return;
-    const { data } = await supabase.from("games").select().eq("id", room.id).single();
-    if (data) setRoom(data);
+    const { data, error } = await supabase.from("games").select().eq("id", room.id).single();
+    if (!error && data) {
+      setRoom(data);
+      alert('Manual refresh successful — row updated locally.');
+    } else {
+      alert('Manual refresh failed: ' + (error?.message || 'unknown'));
+    }
   };
 
-  // UI: login
+  const calculateFeedback = (guessStr, secretStr) => {
+    if (!guessStr || !secretStr) return { totalMatches: 0, correctPositions: 0 };
+    let cp = 0, cd = 0;
+    const g = guessStr.split(''), s = secretStr.split('');
+    const usedS = [false,false,false,false], usedG = [false,false,false,false];
+    for (let i=0;i<4;i++) if (g[i] === s[i]) { cp++; usedS[i]=true; usedG[i]=true; }
+    for (let i=0;i<4;i++){
+      if (!usedG[i]) for (let j=0;j<4;j++) if (!usedS[j] && g[i] === s[j]) { cd++; usedS[j]=true; break; }
+    }
+    return { totalMatches: cp+cd, correctPositions: cp };
+  };
+
+  const makeGuess = async () => {
+    if (!/^\d{4}$/.test(guess)) return alert("Enter 4 digits");
+    if (!room) return;
+    const myKey = room.player1 === name ? 'player1' : 'player2';
+    const isMyTurn = room.current_turn === myKey;
+    if (!isMyTurn) return alert("Not your turn");
+    const opponentSecret = myKey === 'player1' ? room.secret_player2 : room.secret_player1;
+    if (!opponentSecret) return alert("Opponent hasn't set secret");
+    const feedback = calculateFeedback(guess, opponentSecret);
+    const newGuesses = [...(room.guesses || []), { player: name, guess, feedback, auto: false }];
+    const updates = { guesses: newGuesses };
+    if (feedback.correctPositions === 4) updates.winner = name;
+    else updates.current_turn = room.current_turn === 'player1' ? 'player2' : 'player1';
+    const { data, error } = await supabase.from('games').update(updates).eq('id', room.id).select().single();
+    if (error) return alert(error.message);
+    setRoom(data);
+    setGuess('');
+  };
+
+  const handleTimeout = async () => {
+    if (!room) return;
+    const playerKey = room.current_turn;
+    const opponentSecret = playerKey === 'player1' ? room.secret_player2 : room.secret_player1;
+    if (!opponentSecret) return;
+    const autoGuess = Math.floor(1000 + Math.random()*9000).toString();
+    const feedback = calculateFeedback(autoGuess, opponentSecret);
+    const newGuesses = [...(room.guesses || []), { player: room[playerKey], guess: autoGuess, feedback, auto: true }];
+    const newWarnings = { ...(room.warnings || { player1:0, player2:0 }) };
+    newWarnings[playerKey] = (newWarnings[playerKey] || 0) + 1;
+    await supabase.from('games').update({
+      guesses: newGuesses,
+      warnings: newWarnings,
+      current_turn: playerKey === 'player1' ? 'player2' : 'player1'
+    }).eq('id', room.id);
+  };
+
+  // ---------- UI ----------
   if (stage === "login") {
     return (
       <div className="container">
@@ -126,13 +183,12 @@ export default function NumberGuessingGame() {
             <button className="btn" onClick={createRoom}>Create Room</button>
             <button className="btn secondary" onClick={joinRoom}>Join Room</button>
           </div>
-          <div style={{marginTop:12}} className="small">Debug: subscription {debugSub}</div>
+          <div style={{marginTop:12}} className="small">Debug: subscription {debugSub} — Press <strong>R</strong> to refresh</div>
         </div>
       </div>
     );
   }
 
-  // lobby
   if (stage === "lobby") {
     return (
       <div className="container">
@@ -146,6 +202,7 @@ export default function NumberGuessingGame() {
           </div>
           <div style={{marginTop:12}} className="small">If player joined but you still see this, click Manual Refresh.</div>
         </div>
+
         <div className="debug">
           <div><strong>Realtime:</strong> {debugSub}</div>
           <div style={{marginTop:8}}><strong>Last payload:</strong></div>
@@ -155,7 +212,6 @@ export default function NumberGuessingGame() {
     );
   }
 
-  // setup
   if (stage === "setup") {
     const hasSet = (room?.player1 === name && room?.secret_player1) || (room?.player2 === name && room?.secret_player2);
     return (
@@ -175,6 +231,7 @@ export default function NumberGuessingGame() {
           )}
           <div style={{marginTop:10}} className="small">Debug: subscription {debugSub}</div>
         </div>
+
         <div className="debug">
           <div><strong>Realtime:</strong> {debugSub}</div>
           <div style={{marginTop:8}}><strong>Last payload:</strong></div>
@@ -184,10 +241,8 @@ export default function NumberGuessingGame() {
     );
   }
 
-  // play (simplified view)
   if (stage === "play") {
     const isMyTurn = room?.current_turn === (room.player1 === name ? 'player1' : 'player2');
-    const mySecret = room.player1 === name ? room.secret_player1 : room.secret_player2;
     return (
       <div className="container">
         <div className="card">
@@ -201,27 +256,7 @@ export default function NumberGuessingGame() {
 
           <div style={{display:'flex',gap:10,marginTop:16}}>
             <input className="input mono" placeholder="4 digits" value={guess} onChange={e=>setGuess(e.target.value.replace(/\D/g,''))} maxLength={4} disabled={!isMyTurn} />
-            <button className="btn" onClick={async ()=>{
-              if (!/^\d{4}$/.test(guess)) return alert('Enter 4 digits');
-              const myKey = room.player1 === name ? 'player1' : 'player2';
-              const opponentSecret = myKey === 'player1' ? room.secret_player2 : room.secret_player1;
-              if (!opponentSecret) return alert("Opponent not ready");
-              // compute feedback client-side for display and push to db
-              const calc = (g,s)=>{
-                let cp=0,cd=0; const ga=g.split(''), sa=s.split(''); const usedS=[false,false,false,false], usedG=[false,false,false,false];
-                for(let i=0;i<4;i++){ if(ga[i]===sa[i]){cp++; usedS[i]=true; usedG[i]=true;} }
-                for(let i=0;i<4;i++){ if(!usedG[i]) for(let j=0;j<4;j++){ if(!usedS[j] && ga[i]===sa[j]){cd++; usedS[j]=true; break;} } }
-                return { totalMatches: cp+cd, correctPositions: cp };
-              };
-              const feedback = calc(guess, opponentSecret);
-              const newGuesses = [...(room.guesses||[]), {player:name, guess, feedback, auto:false}];
-              const updates = { guesses: newGuesses };
-              if (feedback.correctPositions === 4) updates.winner = name; else updates.current_turn = room.current_turn === 'player1' ? 'player2' : 'player1';
-              const { data, error } = await supabase.from('games').update(updates).eq('id', room.id).select().single();
-              if (error) return alert(error.message);
-              setRoom(data);
-              setGuess('');
-            }} disabled={!isMyTurn}>Guess</button>
+            <button className="btn" onClick={makeGuess} disabled={!isMyTurn}>Guess</button>
           </div>
 
           <div style={{marginTop:16}}>
@@ -234,7 +269,7 @@ export default function NumberGuessingGame() {
           </div>
         </div>
 
-        <div className="debug" style={{right:16,top:16}}>
+        <div className="debug" style={{ right: 16, top: 16 }}>
           <div><strong>Realtime:</strong> {debugSub}</div>
           <div style={{marginTop:6}}><strong>Last payload:</strong></div>
           <pre>{payload ? JSON.stringify(payload, null, 2) : '—'}</pre>
@@ -248,7 +283,6 @@ export default function NumberGuessingGame() {
     );
   }
 
-  // finished
   if (stage === "finished") {
     return (
       <div className="container">
