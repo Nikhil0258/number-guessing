@@ -18,6 +18,7 @@ export default function NumberGuessingGame() {
   const [debugSub, setDebugSub] = useState("none");
   const [payload, setPayload] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [lastManualFetchAt, setLastManualFetchAt] = useState(null);
   const timerRef = useRef(null);
   const [timeLeft, setTimeLeft] = useState(15);
 
@@ -30,12 +31,37 @@ export default function NumberGuessingGame() {
     setDebugSub("pending");
     const channel = supabase
       .channel(`room:${room.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "games", filter: `id=eq.${room.id}` }, (p) => {
-        setPayload(p);
-        if (p.record) setRoom(p.record);
-        if (p.record?.secret_player1 && p.record?.secret_player2) setStage("play");
-        if (p.record?.winner) setStage("finished");
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "games", filter: `id=eq.${room.id}` },
+        (p) => {
+          // --- UPDATED CALLBACK: robust transitions ---
+          const rec = p.record;
+          setPayload(p);                // keep debugging view
+          if (!rec) return;
+
+          // authoritative update
+          setRoom(rec);
+
+          // If a second player joined, prompt player1 to set secret
+          // If I'm player1 and the room just got player2, switch me from lobby -> setup
+          if (rec.player2 && name && rec.player1 === name) {
+            setStage(prev => (prev === 'lobby' ? 'setup' : prev));
+          }
+
+          // If both secrets are present, start the game for everyone
+          if (rec.secret_player1 && rec.secret_player2) {
+            setStage('play');
+            setTimeLeft(15);
+          }
+
+          // If winner set, go to finished
+          if (rec.winner) {
+            setStage('finished');
+            if (timerRef.current) clearInterval(timerRef.current);
+          }
+        }
+      )
       .subscribe((status) => {
         // status strings like "SUBSCRIBED", "ERROR", "CLOSED"
         if (status === "SUBSCRIBED") setDebugSub("subscribed");
@@ -43,7 +69,7 @@ export default function NumberGuessingGame() {
       });
 
     return () => supabase.removeChannel(channel);
-  }, [room?.id]);
+  }, [room?.id, name]);
 
   // polling fallback while waiting
   useEffect(() => {
@@ -76,8 +102,7 @@ export default function NumberGuessingGame() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room?.id]);
+  }, [room?.id, name, stage]);
 
   const createRoom = async () => {
     if (!name.trim()) return alert("Enter name");
@@ -107,13 +132,24 @@ export default function NumberGuessingGame() {
     const { data, error } = await supabase.from("games").update({ [playerKey]: secret }).eq("id", room.id).select().single();
     if (error) return alert(error.message);
     setRoom(data); setSecret("");
+    // if both secrets present, realtime callback will move to play
   };
 
+  // ---------- UPDATED manualRefresh (mirror realtime logic) ----------
   const manualRefresh = async () => {
     if (!room?.id) return;
     const { data, error } = await supabase.from("games").select().eq("id", room.id).single();
     if (!error && data) {
       setRoom(data);
+      // same UI transitions as realtime handler:
+      if (data.player2 && name && data.player1 === name && stage === 'lobby') {
+        setStage('setup');
+      }
+      if (data.secret_player1 && data.secret_player2) {
+        setStage('play');
+        setTimeLeft(15);
+      }
+      setLastManualFetchAt(new Date().toISOString());
       alert('Manual refresh successful — row updated locally.');
     } else {
       alert('Manual refresh failed: ' + (error?.message || 'unknown'));
