@@ -1,0 +1,138 @@
+/* styles/globals.css - minimal styles so UI looks good without Tailwind */
+
+:root{
+  --bg1: #4c1d95;
+  --bg2: #0ea5e9;
+  --bg3: #6366f1;
+  --card-bg: rgba(255,255,255,0.06);
+  --muted: #9fb7d6;
+  --accent: #2563eb;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --glass-border: rgba(255,255,255,0.12);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
+}
+
+/* Page background */
+html,body,#__next {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: linear-gradient(135deg, var(--bg1) 0%, var(--bg3) 50%, var(--bg2) 100%);
+  color: white;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.4;
+}
+
+/* Helpers */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Cards / panels */
+.card {
+  background: var(--card-bg);
+  border-radius: 18px;
+  padding: 20px;
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 6px 18px rgba(2,6,23,0.35);
+}
+
+/* Centered small card */
+.center-card {
+  max-width: 720px;
+  margin: 40px auto;
+}
+
+/* Headings */
+.h1 {
+  font-size: 28px;
+  margin: 0 0 8px 0;
+  font-weight: 700;
+}
+.h2 {
+  font-size: 20px;
+  margin: 0 0 8px 0;
+  font-weight: 600;
+}
+.lead {
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* Inputs & buttons */
+.input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+  color: white;
+  box-sizing: border-box;
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+.input:disabled { opacity: 0.6; }
+
+.btn {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn.secondary {
+  background: linear-gradient(90deg, #10b981, #059669);
+}
+.btn.warn {
+  background: var(--danger);
+}
+.btn.ghost {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Layout bits */
+.row { display:flex; gap:10px; }
+.col { display:block; }
+.center { text-align:center; }
+
+/* monospace for codes */
+.mono { font-family: var(--mono); font-size:18px; letter-spacing:0.06em; }
+
+/* Guess history */
+.guess {
+  background: rgba(255,255,255,0.03);
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.04);
+  margin-bottom: 8px;
+}
+
+/* Debug panel */
+.debug {
+  position: fixed;
+  right: 16px;
+  top: 16px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  max-width: 360px;
+  z-index: 9999;
+  box-shadow: 0 6px 20px rgba(2,6,23,0.45);
+}
+.debug pre { white-space: pre-wrap; max-height: 240px; overflow:auto; margin:8px 0 0 0; font-size:11px; }
+
+/* Small helpers */
+.small { font-size: 13px; color: var(--muted); }
+.padded { padding: 12px; }
