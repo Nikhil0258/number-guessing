@@ -13,10 +13,7 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
 }
 
-/* Page background */
-html,body,#__next {
-  height: 100%;
-}
+html,body,#__next { height: 100%; }
 body {
   margin: 0;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
@@ -27,14 +24,8 @@ body {
   line-height: 1.4;
 }
 
-/* Helpers */
-.container {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 20px;
-}
+.container { max-width: 1100px; margin: 0 auto; padding: 20px; }
 
-/* Cards / panels */
 .card {
   background: var(--card-bg);
   border-radius: 18px;
@@ -43,29 +34,11 @@ body {
   box-shadow: 0 6px 18px rgba(2,6,23,0.35);
 }
 
-/* Centered small card */
-.center-card {
-  max-width: 720px;
-  margin: 40px auto;
-}
+.center-card { max-width: 720px; margin: 40px auto; }
+.h1 { font-size: 28px; margin: 0 0 8px 0; font-weight: 700; }
+.h2 { font-size: 20px; margin: 0 0 8px 0; font-weight: 600; }
+.lead { color: var(--muted); margin-bottom: 12px; }
 
-/* Headings */
-.h1 {
-  font-size: 28px;
-  margin: 0 0 8px 0;
-  font-weight: 700;
-}
-.h2 {
-  font-size: 20px;
-  margin: 0 0 8px 0;
-  font-weight: 600;
-}
-.lead {
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-
-/* Inputs & buttons */
 .input {
   width: 100%;
   padding: 12px 14px;
@@ -89,26 +62,14 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.btn.secondary {
-  background: linear-gradient(90deg, #10b981, #059669);
-}
-.btn.warn {
-  background: var(--danger);
-}
-.btn.ghost {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.06);
-}
+.btn.secondary { background: linear-gradient(90deg, #10b981, #059669); }
+.btn.warn { background: var(--danger); }
+.btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.06); }
 
-/* Layout bits */
 .row { display:flex; gap:10px; }
-.col { display:block; }
 .center { text-align:center; }
-
-/* monospace for codes */
 .mono { font-family: var(--mono); font-size:18px; letter-spacing:0.06em; }
 
-/* Guess history */
 .guess {
   background: rgba(255,255,255,0.03);
   padding: 10px;
@@ -117,7 +78,6 @@ body {
   margin-bottom: 8px;
 }
 
-/* Debug panel */
 .debug {
   position: fixed;
   right: 16px;
@@ -133,6 +93,5 @@ body {
 }
 .debug pre { white-space: pre-wrap; max-height: 240px; overflow:auto; margin:8px 0 0 0; font-size:11px; }
 
-/* Small helpers */
 .small { font-size: 13px; color: var(--muted); }
 .padded { padding: 12px; }
