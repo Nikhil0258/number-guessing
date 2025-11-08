@@ -254,7 +254,7 @@ export default function NumberGuessingGame() {
             <button style={topButtonStyle} className="btn" onClick={createRoom}>Create Room</button>
             <button style={topButtonStyle} className="btn secondary" onClick={joinRoom}>Join Room</button>
           </div>
-          <div style={{marginTop:12}} className="small">Debug: subscription {debugSub} — Press <strong>R</strong> to refresh</div>
+          {/* Debug info hidden */}
         </div>
       </div>
     );
@@ -274,12 +274,7 @@ export default function NumberGuessingGame() {
           <div style={{marginTop:12}} className="small">If player joined but you still see this, Manual Refresh or press R — but auto-sync is enabled too.</div>
         </div>
 
-        <div className="debug" style={topFloatingStyle}>
-          <div><strong>Realtime:</strong> {debugSub}</div>
-          <div style={{marginTop:8}}><strong>Last payload:</strong></div>
-          <pre>{payload ? JSON.stringify(payload, null, 2) : '—'}</pre>
-          <div style={{marginTop:8,fontSize:12}}>Last fetch: {lastManualFetchAt || '—'}</div>
-        </div>
+        {/* Debug panel hidden */}
       </div>
     );
   }
@@ -301,15 +296,10 @@ export default function NumberGuessingGame() {
               <button style={topButtonStyle} className="btn ghost" onClick={manualRefresh} style={{...topButtonStyle, marginTop:12}}>Manual Refresh</button>
             </>
           )}
-          <div style={{marginTop:10}} className="small">Debug: subscription {debugSub}</div>
+          {/* Debug panel hidden */}
         </div>
 
-        <div className="debug" style={topFloatingStyle}>
-          <div><strong>Realtime:</strong> {debugSub}</div>
-          <div style={{marginTop:8}}><strong>Last payload:</strong></div>
-          <pre>{payload ? JSON.stringify(payload, null, 2) : '—'}</pre>
-          <div style={{marginTop:8,fontSize:12}}>Last fetch: {lastManualFetchAt || '—'}</div>
-        </div>
+          {/* Debug panel hidden */}
       </div>
     );
   }
@@ -343,16 +333,7 @@ export default function NumberGuessingGame() {
           </div>
         </div>
 
-        <div className="debug" style={{ ...topFloatingStyle, right: 16, top: 16 }}>
-          <div><strong>Realtime:</strong> {debugSub}</div>
-          <div style={{marginTop:6}}><strong>Last payload:</strong></div>
-          <pre>{payload ? JSON.stringify(payload, null, 2) : '—'}</pre>
-          <div style={{marginTop:6}} className="small">Manual refresh:</div>
-          <div style={{display:'flex',gap:8,marginTop:6}}>
-            <button style={topButtonStyle} className="btn ghost" onClick={manualRefresh}>Refresh</button>
-            <button style={topButtonStyle} className="btn warn" onClick={async ()=>{ await supabase.from('games').delete().eq('id', room.id); setRoom(null); setStage('login'); }}>End</button>
-          </div>
-        </div>
+        {/* Debug panel hidden */}
       </div>
     );
   }
