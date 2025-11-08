@@ -19,8 +19,6 @@ export default function NumberGuessingGame() {
   const [payload, setPayload] = useState(null);
   const [copied, setCopied] = useState(false);
   const [lastManualFetchAt, setLastManualFetchAt] = useState(null);
-  const timerRef = useRef(null);
-  const [timeLeft, setTimeLeft] = useState(15);
 
   const gen = () => Math.random().toString(36).substring(2,8).toUpperCase();
 
@@ -48,13 +46,11 @@ export default function NumberGuessingGame() {
           // if both secrets present -> play
           if (rec.secret_player1 && rec.secret_player2) {
             setStage('play');
-            setTimeLeft(15);
           }
 
           // winner -> finished
           if (rec.winner) {
             setStage('finished');
-            if (timerRef.current) clearInterval(timerRef.current);
           }
         }
       )
@@ -84,7 +80,6 @@ export default function NumberGuessingGame() {
           const { data } = await supabase.from("games").select().eq("id", room.id).single();
           if (data) {
             setRoom(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
-            // transitions handled in separate effects and realtime callback too
           }
         } catch (e) { /* ignore */ }
       }, 2000);
@@ -113,7 +108,7 @@ export default function NumberGuessingGame() {
           setRoom(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
           // UI transitions:
           if (data.player2 && name && data.player1 === name && stage === 'lobby') setStage('setup');
-          if (data.secret_player1 && data.secret_player2) { setStage('play'); setTimeLeft(15); }
+          if (data.secret_player1 && data.secret_player2) setStage('play');
         }
       } catch (e) { /* ignore */ }
     }, 1500);
@@ -122,7 +117,6 @@ export default function NumberGuessingGame() {
   }, [room?.id, stage, name]);
 
   // ---------- Polling during play stage to pick up manual edits (2s) ----------
-  // This ensures manual DB edits (like setting winner or pushing guesses) are picked up automatically.
   useEffect(() => {
     if (!room?.id) return;
     let id = null;
@@ -133,10 +127,7 @@ export default function NumberGuessingGame() {
           const { data } = await supabase.from('games').select().eq('id', room.id).single();
           if (data) {
             if (JSON.stringify(data) !== JSON.stringify(room)) setRoom(data);
-            if (data.winner) {
-              setStage('finished');
-              if (timerRef.current) clearInterval(timerRef.current);
-            }
+            if (data.winner) setStage('finished');
           }
         } catch (e) { /* ignore */ }
       })();
@@ -145,26 +136,14 @@ export default function NumberGuessingGame() {
         try {
           const { data } = await supabase.from('games').select().eq('id', room.id).single();
           if (data) {
-            // update if row changed
             if (JSON.stringify(data) !== JSON.stringify(room)) setRoom(data);
-            // if someone manually set winner via SQL/table editor, switch to finished
-            if (data.winner) {
-              setStage('finished');
-              if (timerRef.current) clearInterval(timerRef.current);
-            }
+            if (data.winner) setStage('finished');
           }
         } catch (e) { /* ignore */ }
       }, 2000);
     }
     return () => id && clearInterval(id);
   }, [room?.id, stage, room]);
-
-  // ---------- Timer for playing ----------
-  useEffect(() => {
-    if (stage !== "play") { if (timerRef.current) clearInterval(timerRef.current); return; }
-    timerRef.current = setInterval(() => setTimeLeft(t => t <= 1 ? 15 : t - 1), 1000);
-    return () => clearInterval(timerRef.current);
-  }, [stage]);
 
   // ---------- keyboard shortcut R => manual refresh ----------
   useEffect(() => {
@@ -204,7 +183,6 @@ export default function NumberGuessingGame() {
     const { data, error } = await supabase.from("games").update({ [playerKey]: secret }).eq("id", room.id).select().single();
     if (error) return alert(error.message);
     setRoom(data); setSecret("");
-    // realtime/poller will detect both secrets and move to play
   };
 
   const manualRefresh = async () => {
@@ -214,8 +192,8 @@ export default function NumberGuessingGame() {
       if (!error && data) {
         setRoom(data);
         if (data.player2 && name && data.player1 === name && stage === 'lobby') setStage('setup');
-        if (data.secret_player1 && data.secret_player2) { setStage('play'); setTimeLeft(15); }
-        if (data.winner) { setStage('finished'); if (timerRef.current) clearInterval(timerRef.current); }
+        if (data.secret_player1 && data.secret_player2) setStage('play');
+        if (data.winner) setStage('finished');
         setLastManualFetchAt(new Date().toISOString());
         console.log('Manual refresh success', data);
       } else {
@@ -255,23 +233,6 @@ export default function NumberGuessingGame() {
     if (error) return alert(error.message);
     setRoom(data);
     setGuess('');
-  };
-
-  const handleTimeout = async () => {
-    if (!room) return;
-    const playerKey = room.current_turn;
-    const opponentSecret = playerKey === 'player1' ? room.secret_player2 : room.secret_player1;
-    if (!opponentSecret) return;
-    const autoGuess = Math.floor(1000 + Math.random()*9000).toString();
-    const feedback = calculateFeedback(autoGuess, opponentSecret);
-    const newGuesses = [...(room.guesses || []), { player: room[playerKey], guess: autoGuess, feedback, auto: true }];
-    const newWarnings = { ...(room.warnings || { player1:0, player2:0 }) };
-    newWarnings[playerKey] = (newWarnings[playerKey] || 0) + 1;
-    await supabase.from('games').update({
-      guesses: newGuesses,
-      warnings: newWarnings,
-      current_turn: playerKey === 'player1' ? 'player2' : 'player1'
-    }).eq('id', room.id);
   };
 
   // ---------- UI helpers ----------
@@ -363,7 +324,6 @@ export default function NumberGuessingGame() {
               <div style={{fontWeight:700}}>{room.player1}{room.current_turn === 'player1' && ' ◀'}</div>
               <div style={{fontWeight:700}}>{room.player2}{room.current_turn === 'player2' && ' ◀'}</div>
             </div>
-            <div style={{fontSize:20,fontWeight:700}}>{timeLeft}s</div>
           </div>
 
           <div style={{display:'flex',gap:10,marginTop:16}}>
@@ -374,7 +334,9 @@ export default function NumberGuessingGame() {
           <div style={{marginTop:16}}>
             {(room.guesses||[]).slice().reverse().map((g,i)=>(
               <div key={i} className="guess">
-                <div style={{display:'flex',justifyContent:'space-between'}}><div style={{fontWeight:600}}>{g.player}</div>{g.auto && <div style={{color:'#f59e0b'}}>Auto</div>}</div>
+                <div style={{display:'flex',justifyContent:'space-between'}}>
+                  <div style={{fontWeight:600}}>{g.player}</div>
+                </div>
                 <div className="mono" style={{marginTop:6}}>{g.guess} → {g.feedback.totalMatches} digits, {g.feedback.correctPositions} positions</div>
               </div>
             ))}
