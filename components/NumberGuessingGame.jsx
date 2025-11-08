@@ -22,26 +22,25 @@ export default function NumberGuessingGame() {
   const timerRef = useRef(null);
   const [timeLeft, setTimeLeft] = useState(15);
 
-  // generate code
   const gen = () => Math.random().toString(36).substring(2,8).toUpperCase();
 
-  // ---------------- Realtime subscription ----------------
+  // ---------- Realtime subscription ----------
   useEffect(() => {
     if (!room?.id) { setDebugSub("none"); return; }
     setDebugSub("pending");
+
     const channel = supabase
       .channel(`room:${room.id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "games", filter: `id=eq.${room.id}` },
         (p) => {
-          // robust handler: update authoritative row and manage transitions
           const rec = p.record;
           setPayload(p);
           if (!rec) return;
           setRoom(rec);
 
-          // if player2 joined and I'm player1, move from lobby -> setup (so I can set my secret)
+          // if player2 joined, prompt player1 to set secret (lobby -> setup)
           if (rec.player2 && name && rec.player1 === name) {
             setStage(prev => (prev === 'lobby' ? 'setup' : prev));
           }
@@ -52,7 +51,7 @@ export default function NumberGuessingGame() {
             setTimeLeft(15);
           }
 
-          // winner handling
+          // winner -> finished
           if (rec.winner) {
             setStage('finished');
             if (timerRef.current) clearInterval(timerRef.current);
@@ -67,84 +66,107 @@ export default function NumberGuessingGame() {
     return () => supabase.removeChannel(channel);
   }, [room?.id, name]);
 
-  // ---------------- Polling fallback (every 2s while waiting) ----------------
+  // ---------- Polling fallback while waiting (2s) ----------
   useEffect(() => {
     if (!room?.id) return;
     let id = null;
     if (stage === "lobby" || stage === "setup") {
+      // run an immediate fetch
       (async () => {
-        const { data } = await supabase.from("games").select().eq("id", room.id).single();
-        if (data) setRoom(data);
+        try {
+          const { data } = await supabase.from("games").select().eq("id", room.id).single();
+          if (data) setRoom(data);
+        } catch (e) { /* ignore */ }
       })();
+
       id = setInterval(async () => {
-        const { data } = await supabase.from("games").select().eq("id", room.id).single();
-        if (data) setRoom(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
+        try {
+          const { data } = await supabase.from("games").select().eq("id", room.id).single();
+          if (data) {
+            setRoom(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
+            // transitions handled in separate effects and realtime callback too
+          }
+        } catch (e) { /* ignore */ }
       }, 2000);
     }
     return () => id && clearInterval(id);
   }, [room?.id, stage]);
 
-  // ---------------- Auto-fetcher: aggressive auto refresh while waiting ----------------
-  // This will run every 1.5s while we're waiting and realtime hasn't delivered payloads yet.
+  // ---------- Aggressive auto-fetcher while waiting (1.5s) ----------
   useEffect(() => {
     if (!room?.id) return;
     let id = null;
-    // Conditions to auto-fetch:
-    // - room exists
-    // - stage is lobby or setup (we are waiting for other player/secret)
-    // - we either don't have a payload yet OR payload doesn't contain the join/secret we need
     const shouldRun = (stage === 'lobby' || stage === 'setup');
-    const needFetch = () => {
-      if (!payload) return true;
-      // if player2 not present in local room state, fetch
-      if (!room.player2) return true;
-      // if player2 present but both secrets not present yet, still fetch so we catch secret_player2
-      if (!room.secret_player1 || !room.secret_player2) return true;
-      return false;
-    };
+    if (!shouldRun) return;
+    // immediate fetch
+    (async () => {
+      try {
+        const { data } = await supabase.from('games').select().eq('id', room.id).single();
+        if (data) setRoom(data);
+      } catch (e) { /* ignore */ }
+    })();
 
-    if (shouldRun && needFetch()) {
-      // immediate fetch once:
+    id = setInterval(async () => {
+      try {
+        const { data } = await supabase.from('games').select().eq('id', room.id).single();
+        if (data) {
+          setRoom(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
+          // UI transitions:
+          if (data.player2 && name && data.player1 === name && stage === 'lobby') setStage('setup');
+          if (data.secret_player1 && data.secret_player2) { setStage('play'); setTimeLeft(15); }
+        }
+      } catch (e) { /* ignore */ }
+    }, 1500);
+
+    return () => id && clearInterval(id);
+  }, [room?.id, stage, name]);
+
+  // ---------- Polling during play stage to pick up manual edits (2s) ----------
+  // This ensures manual DB edits (like setting winner or pushing guesses) are picked up automatically.
+  useEffect(() => {
+    if (!room?.id) return;
+    let id = null;
+    if (stage === 'play') {
+      // immediate fetch
       (async () => {
         try {
           const { data } = await supabase.from('games').select().eq('id', room.id).single();
-          if (data) setRoom(data);
-        } catch (e) {
-          /* ignore */
-        }
+          if (data) {
+            if (JSON.stringify(data) !== JSON.stringify(room)) setRoom(data);
+            if (data.winner) {
+              setStage('finished');
+              if (timerRef.current) clearInterval(timerRef.current);
+            }
+          }
+        } catch (e) { /* ignore */ }
       })();
+
       id = setInterval(async () => {
         try {
           const { data } = await supabase.from('games').select().eq('id', room.id).single();
           if (data) {
-            setRoom(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
-            // if we now see player2 and I'm player1, prompt for setup
-            if (data.player2 && name && data.player1 === name && stage === 'lobby') {
-              setStage('setup');
-            }
-            // if both secrets present, go to play
-            if (data.secret_player1 && data.secret_player2) {
-              setStage('play');
-              setTimeLeft(15);
+            // update if row changed
+            if (JSON.stringify(data) !== JSON.stringify(room)) setRoom(data);
+            // if someone manually set winner via SQL/table editor, switch to finished
+            if (data.winner) {
+              setStage('finished');
+              if (timerRef.current) clearInterval(timerRef.current);
             }
           }
-        } catch (e) {
-          // ignore
-        }
-      }, 1500);
+        } catch (e) { /* ignore */ }
+      }, 2000);
     }
     return () => id && clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room?.id, stage, payload, name]);
+  }, [room?.id, stage, room]);
 
-  // ---------------- Timer for playing stage ----------------
+  // ---------- Timer for playing ----------
   useEffect(() => {
     if (stage !== "play") { if (timerRef.current) clearInterval(timerRef.current); return; }
     timerRef.current = setInterval(() => setTimeLeft(t => t <= 1 ? 15 : t - 1), 1000);
     return () => clearInterval(timerRef.current);
   }, [stage]);
 
-  // keyboard shortcut R => manual refresh
+  // ---------- keyboard shortcut R => manual refresh ----------
   useEffect(() => {
     const onKey = (e) => {
       if ((e.key === 'r' || e.key === 'R') && room?.id) manualRefresh();
@@ -153,7 +175,7 @@ export default function NumberGuessingGame() {
     return () => window.removeEventListener('keydown', onKey);
   }, [room?.id, name, stage]);
 
-  // ---------------- actions ----------------
+  // ---------- actions ----------
   const createRoom = async () => {
     if (!name.trim()) return alert("Enter name");
     const newCode = gen();
@@ -182,25 +204,25 @@ export default function NumberGuessingGame() {
     const { data, error } = await supabase.from("games").update({ [playerKey]: secret }).eq("id", room.id).select().single();
     if (error) return alert(error.message);
     setRoom(data); setSecret("");
+    // realtime/poller will detect both secrets and move to play
   };
 
   const manualRefresh = async () => {
     if (!room?.id) return;
-    const { data, error } = await supabase.from("games").select().eq("id", room.id).single();
-    if (!error && data) {
-      setRoom(data);
-      if (data.player2 && name && data.player1 === name && stage === 'lobby') {
-        setStage('setup');
+    try {
+      const { data, error } = await supabase.from("games").select().eq("id", room.id).single();
+      if (!error && data) {
+        setRoom(data);
+        if (data.player2 && name && data.player1 === name && stage === 'lobby') setStage('setup');
+        if (data.secret_player1 && data.secret_player2) { setStage('play'); setTimeLeft(15); }
+        if (data.winner) { setStage('finished'); if (timerRef.current) clearInterval(timerRef.current); }
+        setLastManualFetchAt(new Date().toISOString());
+        console.log('Manual refresh success', data);
+      } else {
+        console.warn('Manual refresh error', error);
       }
-      if (data.secret_player1 && data.secret_player2) {
-        setStage('play');
-        setTimeLeft(15);
-      }
-      setLastManualFetchAt(new Date().toISOString());
-      // no blocking alert to avoid interfering with clicks/popups
-      console.log('Manual refresh success', data);
-    } else {
-      console.warn('Manual refresh failed', error);
+    } catch (e) {
+      console.warn('Manual refresh exception', e);
     }
   };
 
@@ -252,7 +274,7 @@ export default function NumberGuessingGame() {
     }).eq('id', room.id);
   };
 
-  // ---------- UI helpers: ensure important controls are always on top ----------
+  // ---------- UI helpers ----------
   const topButtonStyle = { zIndex: 999999, position: 'relative', pointerEvents: 'auto' };
   const topFloatingStyle = { zIndex: 999999, pointerEvents: 'auto' };
 
@@ -288,7 +310,7 @@ export default function NumberGuessingGame() {
             <button style={topButtonStyle} className="btn ghost" onClick={manualRefresh}>Manual Refresh</button>
             <button style={topButtonStyle} className="btn warn" onClick={async()=>{ await supabase.from('games').delete().eq('id', room.id); setRoom(null); setStage('login'); }}>Cancel</button>
           </div>
-          <div style={{marginTop:12}} className="small">If player joined but you still see this, click Manual Refresh or press R.</div>
+          <div style={{marginTop:12}} className="small">If player joined but you still see this, Manual Refresh or press R — but auto-sync is enabled too.</div>
         </div>
 
         <div className="debug" style={topFloatingStyle}>
